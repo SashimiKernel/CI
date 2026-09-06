@@ -163,7 +163,6 @@ jobs:
         with:
           tag_name: bangkk-${{ env.DATE_RELEASE }}-${{ env.BUILD_ID }}
           name: Sashimi Kernel — ${{ env.DATE_STR }} (Bangkk)
-          generate_release_notes: true
           body: |
             ## Sashimi Kernel — `bangkk`
 
@@ -176,17 +175,13 @@ jobs:
 
             ### Managers
 
-            - **Kernel Zip** — attached below
             - [ReSukiSU Manager](https://github.com/${{ github.repository }}/releases/download/bangkk-${{ env.DATE_RELEASE }}-${{ env.BUILD_ID }}/ReSukiSU_Manager.apk)
             - [ReSukiSU Manager (Spoofed)](https://github.com/${{ github.repository }}/releases/download/bangkk-${{ env.DATE_RELEASE }}-${{ env.BUILD_ID }}/ReSukiSU_Manager-Spoofed.apk)
 
             ### Hash
 
-            ```
-            SHA256: ${{ env.ZIP_SHA256 }}
-            ```
+            SHA256: ```${{ env.ZIP_SHA256 }}```
 
-            ### Changelog
           files: |
             ${{ env.ZIP_PATH }}
             release_out/*.apk
