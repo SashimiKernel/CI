@@ -162,13 +162,31 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: bangkk-${{ env.DATE_RELEASE }}-${{ env.BUILD_ID }}
-          name: Sashimi Kernel - ${{ env.DATE_RELEASE }}-${{ env.BUILD_ID }} (Bangkk)
+          name: Sashimi Kernel — ${{ env.DATE_STR }} (Bangkk)
+          generate_release_notes: true
           body: |
-            * Device: bangkk
-            * Date: ${{ env.DATE_STR }}
-            * Branch: ${{ inputs.branch || 'resukisu' }}
-            * KernelSU: Yes ([Manager](https://github.com/${{ github.repository }}/releases/download/bangkk-${{ env.DATE_RELEASE }}-${{ env.BUILD_ID }}/ReSukiSU_Manager.apk) & [Spoofed Manager](https://github.com/${{ github.repository }}/releases/download/bangkk-${{ env.DATE_RELEASE }}-${{ env.BUILD_ID }}/ReSukiSU_Manager-Spoofed.apk))
-            * SHA256: `${{ env.ZIP_SHA256 }}`
+            ## Sashimi Kernel — `bangkk`
+
+            | | |
+            |---|---|
+            | **Device** | `bangkk` |
+            | **Date** | ${{ env.DATE_STR }} |
+            | **Branch** | `${{ inputs.branch || 'resukisu' }}` |
+            | **KernelSU** | Yes |
+
+            ### Managers
+
+            - **Kernel Zip** — attached below
+            - [ReSukiSU Manager](https://github.com/${{ github.repository }}/releases/download/bangkk-${{ env.DATE_RELEASE }}-${{ env.BUILD_ID }}/ReSukiSU_Manager.apk)
+            - [ReSukiSU Manager (Spoofed)](https://github.com/${{ github.repository }}/releases/download/bangkk-${{ env.DATE_RELEASE }}-${{ env.BUILD_ID }}/ReSukiSU_Manager-Spoofed.apk)
+
+            ### Hash
+
+            ```
+            SHA256: ${{ env.ZIP_SHA256 }}
+            ```
+
+            ### Changelog
           files: |
             ${{ env.ZIP_PATH }}
             release_out/*.apk
