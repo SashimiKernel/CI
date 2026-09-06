@@ -25,6 +25,9 @@ permissions:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
     env:
       CCACHE_DIR: /home/runner/.ccache
       CCACHE_MAXSIZE: "2.5G"
@@ -38,22 +41,22 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get -y --no-install-recommends install libarchive-tools ccache
-          
+
           BUILD_ID=$(date +'%H%M')
           DATE_STR="$(date +'%d.%m.%y')"
           DATE_TAG=$(date +'%Y%m%d')
           DATE_RELEASE=$(date +'%d%m%y')
-          
-          echo "BUILD_ID=${BUILD_ID}" >> $GITHUB_ENV
-          echo "DATE_STR=${DATE_STR}" >> $GITHUB_ENV
-          echo "DATE_TAG=${DATE_TAG}" >> $GITHUB_ENV
-          echo "DATE_RELEASE=${DATE_RELEASE}" >> $GITHUB_ENV
+
+          echo "BUILD_ID=${BUILD_ID}" >> "$GITHUB_ENV"
+          echo "DATE_STR=${DATE_STR}" >> "$GITHUB_ENV"
+          echo "DATE_TAG=${DATE_TAG}" >> "$GITHUB_ENV"
+          echo "DATE_RELEASE=${DATE_RELEASE}" >> "$GITHUB_ENV"
 
       - name: Setup ccache
         uses: actions/cache@v4
         with:
           path: /home/runner/.ccache
-          key: ${{ runner.os }}-ccache-${{ inputs.branch }}-${{ github.run_id }}
+          key: ${{ runner.os }}-ccache-${{ inputs.branch }}-${{ env.DATE_TAG }}
           restore-keys: |
             ${{ runner.os }}-ccache-${{ inputs.branch }}-
             ${{ runner.os }}-ccache-
@@ -78,8 +81,8 @@ jobs:
       - name: Prepare Configuration
         working-directory: ./CI
         run: |
-          CONFIG_ENV=$(cat config.env | grep -w "CONFIG_ENV" | head -n 1 | cut -d "=" -f 2)
-          echo "ENABLE_CCACHE=$(cat $CONFIG_ENV | grep -w "ENABLE_CCACHE" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
+          CONFIG_ENV=$(grep -w "CONFIG_ENV" config.env | head -n 1 | cut -d "=" -f 2)
+          echo "ENABLE_CCACHE=$(grep -w "ENABLE_CCACHE" "$CONFIG_ENV" | head -n 1 | cut -d "=" -f 2)" >> "$GITHUB_ENV"
 
       - name: Set SWAP to 10G
         uses: SushiKernel/swap@moe
@@ -104,13 +107,15 @@ jobs:
         if: ${{ inputs.upload_telegram }}
         working-directory: ./android_kernel_motorola_sm6375
         run: |
-          echo "CHAT_ID=${{ secrets.CHAT_ID }}" >> .env
-          echo "MESSAGE_THREAD_ID=${{ secrets.MESSAGE_THREAD_ID }}" >> .env
-          echo "API_ID=${{ secrets.API_ID }}" >> .env
-          echo "API_HASH=${{ secrets.API_HASH }}" >> .env
-          echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}" >> .env
-          echo "MY_ID=${{ secrets.MY_ID }}" >> .env
-          echo "CHANNEL_ID=${{ secrets.CHANNEL_ID }}" >> .env
+          {
+            echo "CHAT_ID=${{ secrets.CHAT_ID }}"
+            echo "MESSAGE_THREAD_ID=${{ secrets.MESSAGE_THREAD_ID }}"
+            echo "API_ID=${{ secrets.API_ID }}"
+            echo "API_HASH=${{ secrets.API_HASH }}"
+            echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}"
+            echo "MY_ID=${{ secrets.MY_ID }}"
+            echo "CHANNEL_ID=${{ secrets.CHANNEL_ID }}"
+          } >> .env
 
       - name: Compile Kernel
         working-directory: ./android_kernel_motorola_sm6375
@@ -118,7 +123,7 @@ jobs:
           if [ "${{ inputs.upload_telegram }}" = "true" ]; then
             ./bot.sh
           else
-            ./sashimi.sh
+            ./sashimi.sh -v bangkk
           fi
 
       - name: Prepare Release Artifacts
@@ -126,23 +131,32 @@ jobs:
         run: |
           mkdir -p release_out
           ZIP_FILE=$(find android_kernel_motorola_sm6375 -maxdepth 2 -type f -iname "Sashimi-*.zip" | head -n 1)
-          if [ -n "$ZIP_FILE" ]; then
-            cp "$ZIP_FILE" release_out/
-            ZIP_NAME=$(basename "$ZIP_FILE")
-            SHA256=$(sha256sum "release_out/$ZIP_NAME" | awk '{print $1}')
-            echo "ZIP_PATH=release_out/$ZIP_NAME" >> $GITHUB_ENV
-            echo "ZIP_SHA256=$SHA256" >> $GITHUB_ENV
-          else
+          if [ -z "$ZIP_FILE" ]; then
             echo "ERROR: No Sashimi ZIP found"
             exit 1
           fi
 
+          cp "$ZIP_FILE" release_out/
+          ZIP_NAME=$(basename "$ZIP_FILE")
+          SHA256=$(sha256sum "release_out/$ZIP_NAME" | awk '{print $1}')
+          echo "ZIP_PATH=release_out/$ZIP_NAME" >> "$GITHUB_ENV"
+          echo "ZIP_SHA256=$SHA256" >> "$GITHUB_ENV"
+
+          shopt -s nullglob
           if [ -d "CI/Manager" ]; then
-            cp CI/Manager/*.apk release_out/
+            apks=(CI/Manager/*.apk)
           elif [ -d "Manager" ]; then
-            cp Manager/*.apk release_out/
+            apks=(Manager/*.apk)
+          else
+            apks=()
           fi
-          
+          if [ "${#apks[@]}" -gt 0 ]; then
+            cp "${apks[@]}" release_out/
+          else
+            echo "Warning: no Manager APK found, releasing zip only."
+          fi
+          shopt -u nullglob
+
       - name: Create GitHub Release
         if: ${{ inputs.create_release && env.ZIP_PATH != '' }}
         uses: softprops/action-gh-release@v2
