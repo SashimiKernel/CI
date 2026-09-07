@@ -8,6 +8,11 @@ on:
         required: true
         default: 'resukisu'
         type: string
+      localversion:
+        description: 'Kernel Name String (CONFIG_LOCALVERSION)'
+        required: true
+        default: '-Sashimi'
+        type: string
       upload_telegram:
         description: 'Upload build to Telegram'
         required: true
@@ -117,6 +122,18 @@ jobs:
             echo "CHANNEL_ID=${{ secrets.CHANNEL_ID }}"
           } >> .env
 
+      - name: Configure Localversion
+        working-directory: ./android_kernel_motorola_sm6375
+        run: |
+          DEFCONFIG_FILE=$(find arch/arm64/configs/vendor -name "bangkk_defconfig" | head -n 1)
+          if [ -n "$DEFCONFIG_FILE" ]; then
+            if grep -q "CONFIG_LOCALVERSION=" "$DEFCONFIG_FILE"; then
+              sed -i "s/CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION=\"${{ inputs.localversion }}\"/" "$DEFCONFIG_FILE"
+            else
+              echo "CONFIG_LOCALVERSION=\"${{ inputs.localversion }}\"" >> "$DEFCONFIG_FILE"
+            fi
+          fi
+
       - name: Compile Kernel
         working-directory: ./android_kernel_motorola_sm6375
         run: |
@@ -171,6 +188,7 @@ jobs:
             | **Device:** | `bangkk` |
             | **Date:** | ${{ env.DATE_STR }} |
             | **Branch:** | `${{ inputs.branch || 'resukisu' }}` |
+            | **Localversion:** | `${{ inputs.localversion }}` |
             | **KernelSU:** | Yes |
 
             ### Managers
