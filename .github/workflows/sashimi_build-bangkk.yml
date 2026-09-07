@@ -14,7 +14,7 @@ on:
         default: false
         type: boolean
       kernel_string:
-        description: 'Kernel Localversion'
+        description: 'Custom Kernel String'
         required: true
         default: '-Sashimi'
         type: string
