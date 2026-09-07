@@ -188,7 +188,7 @@ jobs:
             | **Device:** | `bangkk` |
             | **Date:** | ${{ env.DATE_STR }} |
             | **Branch:** | `${{ inputs.branch || 'resukisu' }}` |
-            | **KernelSU:** | Yes |
+            | **ReSukiSU:** | Yes |
 
             ### Managers
 
