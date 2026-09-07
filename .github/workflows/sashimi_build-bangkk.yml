@@ -8,11 +8,21 @@ on:
         required: true
         default: 'resukisu'
         type: string
-      localversion:
-        description: 'Kernel Name String (CONFIG_LOCALVERSION)'
+      customize_kernel_string:
+        description: 'Customize Kernel String'
+        required: true
+        default: false
+        type: boolean
+      kernel_string:
+        description: 'Kernel Localversion'
         required: true
         default: '-Sashimi'
         type: string
+      build_ksu:
+        description: 'Build ReSukiSU'
+        required: true
+        default: true
+        type: boolean
       upload_telegram:
         description: 'Upload build to Telegram'
         required: true
@@ -120,17 +130,28 @@ jobs:
             echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}"
             echo "MY_ID=${{ secrets.MY_ID }}"
             echo "CHANNEL_ID=${{ secrets.CHANNEL_ID }}"
+            echo "BUILD_KSU=${{ inputs.build_ksu }}"
           } >> .env
 
-      - name: Configure Localversion
+      - name: Configure Kernel Options
         working-directory: ./android_kernel_motorola_sm6375
         run: |
-          DEFCONFIG_FILE=$(find arch/arm64/configs/vendor -name "bangkk_defconfig" | head -n 1)
-          if [ -n "$DEFCONFIG_FILE" ]; then
-            if grep -q "CONFIG_LOCALVERSION=" "$DEFCONFIG_FILE"; then
-              sed -i "s/CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION=\"${{ inputs.localversion }}\"/" "$DEFCONFIG_FILE"
-            else
-              echo "CONFIG_LOCALVERSION=\"${{ inputs.localversion }}\"" >> "$DEFCONFIG_FILE"
+          if [ "${{ inputs.customize_kernel_string }}" = "true" ]; then
+            DEFCONFIG_FILE=$(find arch/arm64/configs -name "bangkk_defconfig" | head -n 1)
+            if [ -n "$DEFCONFIG_FILE" ]; then
+              if grep -q "CONFIG_LOCALVERSION=" "$DEFCONFIG_FILE"; then
+                sed -i "s/CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION=\"${{ inputs.kernel_string }}\"/" "$DEFCONFIG_FILE"
+              else
+                echo "CONFIG_LOCALVERSION=\"${{ inputs.kernel_string }}\"" >> "$DEFCONFIG_FILE"
+              fi
+            fi
+          fi
+
+          if [ "${{ inputs.build_ksu }}" = "false" ]; then
+            MOTO_CONFIG="arch/arm64/configs/moto.config"
+            if [ -f "$MOTO_CONFIG" ]; then
+              sed -i 's/CONFIG_KSU=y/CONFIG_KSU=n/' "$MOTO_CONFIG"
+              sed -i 's/CONFIG_KSU_/# CONFIG_KSU_/g' "$MOTO_CONFIG"
             fi
           fi
 
@@ -188,7 +209,7 @@ jobs:
             | **Device:** | `bangkk` |
             | **Date:** | ${{ env.DATE_STR }} |
             | **Branch:** | `${{ inputs.branch || 'resukisu' }}` |
-            | **ReSukiSU:** | Yes |
+            | **ReSukiSU:** | ${{ inputs.build_ksu && 'Yes' || 'No' }} |
 
             ### Managers
 
