@@ -1,4 +1,4 @@
-name: Sashimi CI Build Bangkk
+name: Sashimi CI Bangkk
 
 on:
   workflow_dispatch:
@@ -45,11 +45,15 @@ jobs:
         shell: bash
     env:
       CCACHE_DIR: /home/runner/.ccache
-      CCACHE_MAXSIZE: "2.5G"
-      CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_MAXSIZE: "5G"
+      CCACHE_COMPILERCHECK: content
       CCACHE_NOHASHDIR: "true"
       CCACHE_HARDLINK: "true"
-      CCACHE_SLOPPINESS: "time_macros,include_file_mtime"
+      CCACHE_SLOPPINESS: "file_macro,time_macros,include_file_mtime,include_file_ctime,locale"
+      KBUILD_BUILD_USER: "ci"
+      KBUILD_BUILD_HOST: "github-actions"
+      KBUILD_BUILD_TIMESTAMP: "Wed Sep 9 00:00:00 UTC 2026"
 
     steps:
       - name: Setup Dependencies & ID
@@ -163,6 +167,10 @@ jobs:
           else
             ./sashimi.sh -v bangkk
           fi
+
+      - name: Ccache Stats
+        run: |
+          ccache -s
 
       - name: Prepare Release Artifacts
         if: ${{ inputs.create_release }}
