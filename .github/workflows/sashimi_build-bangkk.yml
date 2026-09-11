@@ -8,6 +8,11 @@ on:
         required: true
         default: 'resukisu'
         type: string
+      clean_build:
+        description: 'Clean Build (Dont Restore Ccache)'
+        required: true
+        default: false
+        type: boolean
       customize_kernel_string:
         description: 'Customize Kernel String'
         required: true
@@ -71,6 +76,7 @@ jobs:
           echo "DATE_RELEASE=${DATE_RELEASE}" >> "$GITHUB_ENV"
 
       - name: Setup ccache
+        if: ${{ !inputs.clean_build }}
         uses: actions/cache@v4
         with:
           path: /home/runner/.ccache
@@ -78,6 +84,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-ccache-${{ inputs.branch }}-
             ${{ runner.os }}-ccache-
+
+      - name: Clear ccache for Clean Build
+        if: ${{ inputs.clean_build }}
+        run: |
+          rm -rf /home/runner/.ccache
+          mkdir -p /home/runner/.ccache
+          ccache -C -z
 
       - name: Clone Kernel Repo
         uses: actions/checkout@v4
@@ -232,4 +245,3 @@ jobs:
             release_out/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
