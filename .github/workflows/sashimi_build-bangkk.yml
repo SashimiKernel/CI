@@ -6,7 +6,7 @@ on:
       branch:
         description: 'Kernel Branch'
         required: true
-        default: 'resukisu'
+        default: 'seventeen'
         type: string
       clean_build:
         description: 'Clean Build (Dont Restore Ccache)'
