@@ -1,0 +1,280 @@
+name: Sashimi CI Bangkk
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Kernel Branch'
+        required: true
+        default: 'seventeen'
+        type: string
+      clean_build:
+        description: 'Clean Build (Dont Restore Ccache)'
+        required: true
+        default: false
+        type: boolean
+      customize_kernel_string:
+        description: 'Customize Kernel String'
+        required: true
+        default: false
+        type: boolean
+      kernel_string:
+        description: 'Custom Kernel String'
+        required: true
+        default: '-Sashimi'
+        type: string
+      build_ksu:
+        description: 'Build ReSukiSU'
+        required: true
+        default: true
+        type: boolean
+      upload_telegram:
+        description: 'Upload build to Telegram'
+        required: true
+        default: true
+        type: boolean
+      create_release:
+        description: 'Create GitHub Release'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sashimi-ci-bangkk-${{ inputs.branch || 'resukisu' }}
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    env:
+      CCACHE_DIR: /home/runner/.ccache
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_MAXSIZE: "5G"
+      CCACHE_COMPILERCHECK: content
+      CCACHE_NOHASHDIR: "true"
+      CCACHE_HARDLINK: "true"
+      CCACHE_SLOPPINESS: "file_macro,time_macros,include_file_mtime,include_file_ctime,locale"
+      KBUILD_BUILD_USER: "ci"
+      KBUILD_BUILD_HOST: "github-actions"
+
+    steps:
+      - name: Setup Dependencies & ID
+        run: |
+          sudo apt-get update
+          sudo apt-get -y --no-install-recommends install libarchive-tools ccache
+
+          BUILD_ID=$(date +'%H%M')
+          DATE_STR="$(date +'%d.%m.%y')"
+          DATE_TAG=$(date +'%Y%m%d')
+          DATE_RELEASE=$(date +'%d%m%y')
+
+          echo "BUILD_ID=${BUILD_ID}" >> "$GITHUB_ENV"
+          echo "DATE_STR=${DATE_STR}" >> "$GITHUB_ENV"
+          echo "DATE_TAG=${DATE_TAG}" >> "$GITHUB_ENV"
+          echo "DATE_RELEASE=${DATE_RELEASE}" >> "$GITHUB_ENV"
+
+      - name: Setup ccache
+        if: ${{ !inputs.clean_build }}
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/.ccache
+          key: ${{ runner.os }}-ccache-${{ inputs.branch }}-${{ env.DATE_TAG }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-${{ inputs.branch }}-
+            ${{ runner.os }}-ccache-
+
+      - name: Clear ccache for Clean Build
+        if: ${{ inputs.clean_build }}
+        run: |
+          rm -rf "$CCACHE_DIR"
+          mkdir -p "$CCACHE_DIR"
+          ccache --max-size="$CCACHE_MAXSIZE"
+          ccache -z
+          echo "Clean build requested: ccache dir reset, stats zeroed."
+
+      - name: Clone Kernel Repo
+        uses: actions/checkout@v4
+        with:
+          repository: 'SashimiKernel/android_kernel_motorola_sm6375'
+          ref: ${{ inputs.branch || 'resukisu' }}
+          token: ${{ secrets.PAT }}
+          path: 'android_kernel_motorola_sm6375'
+          fetch-depth: 1
+
+      - name: Clone Build Repo
+        uses: sushikernel/github-repo-action@v3.1
+        with:
+          depth: 1
+          branch: 'main'
+          owner: 'SashimiKernel'
+          repository: 'CI'
+
+      - name: Prepare Configuration
+        working-directory: ./CI
+        run: |
+          CONFIG_ENV=$(grep -w "CONFIG_ENV" config.env | head -n 1 | cut -d "=" -f 2)
+          if [ -z "$CONFIG_ENV" ] || [ ! -f "$CONFIG_ENV" ]; then
+            echo "::error::CONFIG_ENV not found or not set in config.env (got: '$CONFIG_ENV')"
+            exit 1
+          fi
+          echo "ENABLE_CCACHE=$(grep -w "ENABLE_CCACHE" "$CONFIG_ENV" | head -n 1 | cut -d "=" -f 2)" >> "$GITHUB_ENV"
+
+      - name: Set SWAP to 10G
+        uses: SushiKernel/swap@moe
+        with:
+          swap-size-gb: 10
+
+      - name: Clone Scripts Repo
+        uses: sushikernel/github-repo-action@v3.1
+        with:
+          depth: 1
+          owner: 'SashimiKernel'
+          branch: 'bangkk'
+          repository: 'scripts'
+
+      - name: Move Scripts
+        working-directory: ./scripts
+        run: |
+          chmod +x *.sh
+          cp sashimi.sh bot.sh ../android_kernel_motorola_sm6375
+
+      - name: Export Variables
+        if: ${{ inputs.upload_telegram }}
+        working-directory: ./android_kernel_motorola_sm6375
+        run: |
+          {
+            echo "CHAT_ID=${{ secrets.CHAT_ID }}"
+            echo "MESSAGE_THREAD_ID=${{ secrets.MESSAGE_THREAD_ID }}"
+            echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}"
+            echo "BUILD_KSU=${{ inputs.build_ksu }}"
+          } >> .env
+
+      - name: Configure Kernel Options
+        working-directory: ./android_kernel_motorola_sm6375
+        run: |
+          if [ "${{ inputs.customize_kernel_string }}" = "true" ]; then
+            DEFCONFIG_FILE=$(find arch/arm64/configs -name "bangkk_defconfig" | head -n 1)
+            if [ -n "$DEFCONFIG_FILE" ]; then
+              if grep -q "CONFIG_LOCALVERSION=" "$DEFCONFIG_FILE"; then
+                sed -i "s/CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION=\"${{ inputs.kernel_string }}\"/" "$DEFCONFIG_FILE"
+              else
+                echo "CONFIG_LOCALVERSION=\"${{ inputs.kernel_string }}\"" >> "$DEFCONFIG_FILE"
+              fi
+              echo "Kernel string set to '${{ inputs.kernel_string }}' in $DEFCONFIG_FILE"
+            else
+              echo "::warning::customize_kernel_string was true but bangkk_defconfig was not found; string not applied."
+            fi
+          fi
+
+          if [ "${{ inputs.build_ksu }}" = "false" ]; then
+            MOTO_CONFIG="arch/arm64/configs/moto.config"
+            if [ -f "$MOTO_CONFIG" ]; then
+              sed -i 's/CONFIG_KSU=y/CONFIG_KSU=n/' "$MOTO_CONFIG"
+              sed -i 's/CONFIG_KSU_/# CONFIG_KSU_/g' "$MOTO_CONFIG"
+              echo "ReSukiSU disabled in $MOTO_CONFIG"
+            else
+              echo "::warning::build_ksu was false but $MOTO_CONFIG was not found; KSU config unchanged."
+            fi
+          fi
+
+      - name: Compile Kernel
+        working-directory: ./android_kernel_motorola_sm6375
+        run: |
+          if [ "${{ inputs.upload_telegram }}" = "true" ]; then
+            ./bot.sh
+          else
+            ./sashimi.sh -v bangkk
+          fi
+
+      - name: Ccache Stats
+        if: ${{ always() }}
+        run: |
+          ccache -s
+
+      - name: Prepare Release Artifacts
+        if: ${{ success() && inputs.create_release }}
+        run: |
+          mkdir -p release_out
+          ZIP_FILE=$(find android_kernel_motorola_sm6375 -maxdepth 2 -type f -iname "Sashimi-*.zip" | head -n 1)
+          if [ -z "$ZIP_FILE" ]; then
+            echo "::error::No Sashimi ZIP found"
+            exit 1
+          fi
+
+          cp "$ZIP_FILE" release_out/
+          ZIP_NAME=$(basename "$ZIP_FILE")
+          SHA256=$(sha256sum "release_out/$ZIP_NAME" | awk '{print $1}')
+          echo "ZIP_PATH=release_out/$ZIP_NAME" >> "$GITHUB_ENV"
+          echo "ZIP_SHA256=$SHA256" >> "$GITHUB_ENV"
+
+          shopt -s nullglob
+          if [ -d "CI/Manager" ]; then
+            apks=(CI/Manager/*.apk)
+          elif [ -d "Manager" ]; then
+            apks=(Manager/*.apk)
+          else
+            apks=()
+          fi
+          if [ "${#apks[@]}" -gt 0 ]; then
+            cp "${apks[@]}" release_out/
+          else
+            echo "::warning::No Manager APK found, releasing zip only."
+          fi
+          shopt -u nullglob
+
+          if [ "${{ inputs.build_ksu }}" = "true" ]; then
+            {
+              echo "MANAGERS_MD<<MANAGERS_EOF"
+              echo "- [ReSukiSU Manager](https://github.com/${{ github.repository }}/releases/download/bangkk-${{ env.DATE_RELEASE }}-${{ env.BUILD_ID }}/ReSukiSU_Manager.apk)"
+              echo "- [ReSukiSU Manager (Spoofed)](https://github.com/${{ github.repository }}/releases/download/bangkk-${{ env.DATE_RELEASE }}-${{ env.BUILD_ID }}/ReSukiSU_Manager-Spoofed.apk)"
+              echo "MANAGERS_EOF"
+            } >> "$GITHUB_ENV"
+          else
+            {
+              echo "MANAGERS_MD<<MANAGERS_EOF"
+              echo "ReSukiSU was not built for this release."
+              echo "MANAGERS_EOF"
+            } >> "$GITHUB_ENV"
+          fi
+
+      - name: Create GitHub Release
+        if: ${{ success() && inputs.create_release && env.ZIP_PATH != '' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: bangkk-${{ env.DATE_RELEASE }}-${{ env.BUILD_ID }}
+          name: Sashimi Kernel — ${{ env.DATE_STR }} (Bangkk)
+          body: |
+            ## Sashimi Kernel — `bangkk`
+
+            | | |
+            |---|---|
+            | **Device:** | `bangkk` |
+            | **Date:** | ${{ env.DATE_STR }} |
+            | **Branch:** | `${{ inputs.branch || 'resukisu' }}` |
+            | **ReSukiSU:** | ${{ inputs.build_ksu && 'Yes' || 'No' }} |
+
+            ### Managers
+
+            ${{ env.MANAGERS_MD }}
+
+            ### Hash
+
+            SHA256: ```${{ env.ZIP_SHA256 }}```
+
+          files: |
+            ${{ env.ZIP_PATH }}
+            release_out/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Report Build Failure
+        if: ${{ failure() }}
+        run: |
+          echo "::error::Sashimi CI Bangkk build failed on branch '${{ inputs.branch || 'resukisu' }}'. Check the 'Compile Kernel' step log above."
