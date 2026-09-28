@@ -43,7 +43,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: sashimi-ci-bangkk-${{ inputs.branch || 'resukisu' }}
+  group: sashimi-ci-bangkk-${{ inputs.branch || 'seventeen' }}
   cancel-in-progress: false
 
 jobs:
