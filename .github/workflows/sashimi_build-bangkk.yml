@@ -102,8 +102,9 @@ jobs:
       - name: Clone Kernel Repo
         uses: actions/checkout@v4
         with:
+          submodules: true
           repository: 'SashimiKernel/android_kernel_motorola_sm6375'
-          ref: ${{ inputs.branch || 'resukisu' }}
+          ref: ${{ inputs.branch || 'seventeen' }}
           token: ${{ secrets.PAT }}
           path: 'android_kernel_motorola_sm6375'
           fetch-depth: 1
