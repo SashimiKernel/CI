@@ -112,7 +112,7 @@ jobs:
           repository: 'SashimiKernel/android_kernel_motorola_sm6375'
           ref: ${{ inputs.branch }}
           path: 'android_kernel_motorola_sm6375'
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
 
       - name: Clone Build Repo
