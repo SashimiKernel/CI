@@ -176,14 +176,15 @@ jobs:
           BUILD_KSU: ${{ inputs.build_ksu }}
         run: |
           if [ "$CUSTOMIZE_STRING" = "true" ]; then
-            if ! [[ "$KERNEL_STRING" =~ ^[A-Za-z0-9._+-]+$ ]]; then
-              echo "::error::Invalid kernel string. Allowed characters: A-Z a-z 0-9 . _ + -"
+            if [[ "$KERNEL_STRING" == *[\"\\]* ]] || [[ "$KERNEL_STRING" =~ [[:cntrl:]] ]]; then
+              echo "::error::Kernel string cannot contain double quotes, backslashes or control characters."
               exit 1
             fi
+            ESCAPED_STRING=$(printf '%s' "$KERNEL_STRING" | sed 's/[|&]/\\&/g')
             DEFCONFIG_FILE=$(find arch/arm64/configs -name "bangkk_defconfig" | head -n 1)
             if [ -n "$DEFCONFIG_FILE" ]; then
               if grep -q "^CONFIG_LOCALVERSION=" "$DEFCONFIG_FILE"; then
-                sed -i "s|^CONFIG_LOCALVERSION=.*|CONFIG_LOCALVERSION=\"${KERNEL_STRING}\"|" "$DEFCONFIG_FILE"
+                sed -i "s|^CONFIG_LOCALVERSION=.*|CONFIG_LOCALVERSION=\"${ESCAPED_STRING}\"|" "$DEFCONFIG_FILE"
               else
                 echo "CONFIG_LOCALVERSION=\"${KERNEL_STRING}\"" >> "$DEFCONFIG_FILE"
               fi
@@ -318,3 +319,4 @@ jobs:
           BRANCH: ${{ inputs.branch }}
         run: |
           echo "::error::Sashimi CI Bangkk build failed on branch '${BRANCH}'. Check the failed step log above."
+          
