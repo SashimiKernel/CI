@@ -112,7 +112,7 @@ jobs:
           repository: 'SashimiKernel/android_kernel_motorola_sm6375'
           ref: ${{ inputs.branch }}
           path: 'android_kernel_motorola_sm6375'
-          fetch-depth: 1
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Clone Build Repo
@@ -315,18 +315,6 @@ jobs:
       - name: Report Build Failure
         if: ${{ failure() }}
         env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
-          MESSAGE_THREAD_ID: ${{ secrets.MESSAGE_THREAD_ID }}
-          UPLOAD_TELEGRAM: ${{ inputs.upload_telegram }}
           BRANCH: ${{ inputs.branch }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           echo "::error::Sashimi CI Bangkk build failed on branch '${BRANCH}'. Check the failed step log above."
-          if [ "$UPLOAD_TELEGRAM" = "true" ] && [ -n "$BOT_TOKEN" ] && [ -n "$CHAT_ID" ]; then
-            args=(-d "chat_id=${CHAT_ID}" --data-urlencode "text=Sashimi CI Bangkk failed on ${BRANCH}: ${RUN_URL}")
-            if [ -n "$MESSAGE_THREAD_ID" ]; then
-              args+=(-d "message_thread_id=${MESSAGE_THREAD_ID}")
-            fi
-            curl -sS -o /dev/null -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" "${args[@]}" || true
-          fi
