@@ -43,7 +43,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: sashimi-ci-bangkk-${{ inputs.branch || 'seventeen' }}
+  group: sashimi-ci-bangkk-${{ inputs.branch }}
   cancel-in-progress: false
 
 jobs:
@@ -70,34 +70,39 @@ jobs:
           sudo apt-get update
           sudo apt-get -y --no-install-recommends install libarchive-tools ccache
 
-          BUILD_ID=$(date +'%H%M')
-          DATE_STR="$(date +'%d.%m.%y')"
-          DATE_TAG=$(date +'%Y%m%d')
-          DATE_RELEASE=$(date +'%d%m%y')
+          {
+            echo "DATE_STR=$(date +'%d.%m.%y')"
+            echo "DATE_TAG=$(date +'%Y%m%d')"
+            echo "RELEASE_TAG=bangkk-$(date +'%d%m%y')-${GITHUB_RUN_NUMBER}"
+          } >> "$GITHUB_ENV"
 
-          echo "BUILD_ID=${BUILD_ID}" >> "$GITHUB_ENV"
-          echo "DATE_STR=${DATE_STR}" >> "$GITHUB_ENV"
-          echo "DATE_TAG=${DATE_TAG}" >> "$GITHUB_ENV"
-          echo "DATE_RELEASE=${DATE_RELEASE}" >> "$GITHUB_ENV"
-
-      - name: Setup ccache
+      - name: Restore ccache
         if: ${{ !inputs.clean_build }}
         uses: actions/cache@v4
         with:
           path: /home/runner/.ccache
-          key: ${{ runner.os }}-ccache-${{ inputs.branch }}-${{ env.DATE_TAG }}
+          key: ${{ runner.os }}-ccache-${{ inputs.branch }}-${{ github.run_id }}
           restore-keys: |
             ${{ runner.os }}-ccache-${{ inputs.branch }}-
             ${{ runner.os }}-ccache-
 
-      - name: Clear ccache for Clean Build
-        if: ${{ inputs.clean_build }}
+      - name: Prepare ccache
+        env:
+          CLEAN_BUILD: ${{ inputs.clean_build }}
         run: |
-          rm -rf "$CCACHE_DIR"
+          if [ "$CLEAN_BUILD" = "true" ]; then
+            rm -rf "$CCACHE_DIR"
+            echo "Clean build requested: ccache dir reset."
+          fi
           mkdir -p "$CCACHE_DIR"
           ccache --max-size="$CCACHE_MAXSIZE"
           ccache -z
-          echo "Clean build requested: ccache dir reset, stats zeroed."
+
+      - name: Cache Toolchain
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/tc
+          key: ${{ runner.os }}-clang-r596125
 
       - name: Clone Kernel Repo
         uses: actions/checkout@v4
@@ -105,9 +110,10 @@ jobs:
           submodules: 'recursive'
           token: ${{ secrets.PAT }}
           repository: 'SashimiKernel/android_kernel_motorola_sm6375'
-          ref: ${{ inputs.branch || 'seventeen' }}
+          ref: ${{ inputs.branch }}
           path: 'android_kernel_motorola_sm6375'
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Clone Build Repo
         uses: sushikernel/github-repo-action@v3.1
@@ -149,36 +155,48 @@ jobs:
       - name: Export Variables
         if: ${{ inputs.upload_telegram }}
         working-directory: ./android_kernel_motorola_sm6375
+        env:
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          MESSAGE_THREAD_ID: ${{ secrets.MESSAGE_THREAD_ID }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          BUILD_KSU: ${{ inputs.build_ksu }}
         run: |
           {
-            echo "CHAT_ID=${{ secrets.CHAT_ID }}"
-            echo "MESSAGE_THREAD_ID=${{ secrets.MESSAGE_THREAD_ID }}"
-            echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}"
-            echo "BUILD_KSU=${{ inputs.build_ksu }}"
+            echo "CHAT_ID=${CHAT_ID}"
+            echo "MESSAGE_THREAD_ID=${MESSAGE_THREAD_ID}"
+            echo "BOT_TOKEN=${BOT_TOKEN}"
+            echo "BUILD_KSU=${BUILD_KSU}"
           } >> .env
 
       - name: Configure Kernel Options
         working-directory: ./android_kernel_motorola_sm6375
+        env:
+          CUSTOMIZE_STRING: ${{ inputs.customize_kernel_string }}
+          KERNEL_STRING: ${{ inputs.kernel_string }}
+          BUILD_KSU: ${{ inputs.build_ksu }}
         run: |
-          if [ "${{ inputs.customize_kernel_string }}" = "true" ]; then
+          if [ "$CUSTOMIZE_STRING" = "true" ]; then
+            if ! [[ "$KERNEL_STRING" =~ ^[A-Za-z0-9._+-]+$ ]]; then
+              echo "::error::Invalid kernel string. Allowed characters: A-Z a-z 0-9 . _ + -"
+              exit 1
+            fi
             DEFCONFIG_FILE=$(find arch/arm64/configs -name "bangkk_defconfig" | head -n 1)
             if [ -n "$DEFCONFIG_FILE" ]; then
-              if grep -q "CONFIG_LOCALVERSION=" "$DEFCONFIG_FILE"; then
-                sed -i "s/CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION=\"${{ inputs.kernel_string }}\"/" "$DEFCONFIG_FILE"
+              if grep -q "^CONFIG_LOCALVERSION=" "$DEFCONFIG_FILE"; then
+                sed -i "s|^CONFIG_LOCALVERSION=.*|CONFIG_LOCALVERSION=\"${KERNEL_STRING}\"|" "$DEFCONFIG_FILE"
               else
-                echo "CONFIG_LOCALVERSION=\"${{ inputs.kernel_string }}\"" >> "$DEFCONFIG_FILE"
+                echo "CONFIG_LOCALVERSION=\"${KERNEL_STRING}\"" >> "$DEFCONFIG_FILE"
               fi
-              echo "Kernel string set to '${{ inputs.kernel_string }}' in $DEFCONFIG_FILE"
+              echo "Kernel string set to '${KERNEL_STRING}' in $DEFCONFIG_FILE"
             else
               echo "::warning::customize_kernel_string was true but bangkk_defconfig was not found; string not applied."
             fi
           fi
 
-          if [ "${{ inputs.build_ksu }}" = "false" ]; then
+          if [ "$BUILD_KSU" = "false" ]; then
             MOTO_CONFIG="arch/arm64/configs/moto.config"
             if [ -f "$MOTO_CONFIG" ]; then
-              sed -i 's/CONFIG_KSU=y/CONFIG_KSU=n/' "$MOTO_CONFIG"
-              sed -i 's/CONFIG_KSU_/# CONFIG_KSU_/g' "$MOTO_CONFIG"
+              sed -i -E 's/^CONFIG_KSU(_[A-Z0-9_]*)?=.*/# CONFIG_KSU\1 is not set/' "$MOTO_CONFIG"
               echo "ReSukiSU disabled in $MOTO_CONFIG"
             else
               echo "::warning::build_ksu was false but $MOTO_CONFIG was not found; KSU config unchanged."
@@ -187,11 +205,13 @@ jobs:
 
       - name: Compile Kernel
         working-directory: ./android_kernel_motorola_sm6375
+        env:
+          UPLOAD_TELEGRAM: ${{ inputs.upload_telegram }}
         run: |
-          if [ "${{ inputs.upload_telegram }}" = "true" ]; then
+          if [ "$UPLOAD_TELEGRAM" = "true" ]; then
             ./bot.sh
           else
-            ./sashimi.sh -v bangkk
+            SKIP_UPLOAD=1 ./sashimi.sh -v bangkk
           fi
 
       - name: Ccache Stats
@@ -200,7 +220,11 @@ jobs:
           ccache -s
 
       - name: Prepare Release Artifacts
-        if: ${{ success() && inputs.create_release }}
+        if: ${{ success() }}
+        env:
+          BUILD_KSU: ${{ inputs.build_ksu }}
+          BRANCH: ${{ inputs.branch }}
+          REPO: ${{ github.repository }}
         run: |
           mkdir -p release_out
           ZIP_FILE=$(find android_kernel_motorola_sm6375 -maxdepth 2 -type f -iname "Sashimi-*.zip" | head -n 1)
@@ -213,7 +237,6 @@ jobs:
           ZIP_NAME=$(basename "$ZIP_FILE")
           SHA256=$(sha256sum "release_out/$ZIP_NAME" | awk '{print $1}')
           echo "ZIP_PATH=release_out/$ZIP_NAME" >> "$GITHUB_ENV"
-          echo "ZIP_SHA256=$SHA256" >> "$GITHUB_ENV"
 
           shopt -s nullglob
           if [ -d "CI/Manager" ]; then
@@ -230,52 +253,80 @@ jobs:
           fi
           shopt -u nullglob
 
-          if [ "${{ inputs.build_ksu }}" = "true" ]; then
-            {
-              echo "MANAGERS_MD<<MANAGERS_EOF"
-              echo "- [ReSukiSU Manager](https://github.com/${{ github.repository }}/releases/download/bangkk-${{ env.DATE_RELEASE }}-${{ env.BUILD_ID }}/ReSukiSU_Manager.apk)"
-              echo "- [ReSukiSU Manager (Spoofed)](https://github.com/${{ github.repository }}/releases/download/bangkk-${{ env.DATE_RELEASE }}-${{ env.BUILD_ID }}/ReSukiSU_Manager-Spoofed.apk)"
-              echo "MANAGERS_EOF"
-            } >> "$GITHUB_ENV"
+          BASE_URL="https://github.com/${REPO}/releases/download/${RELEASE_TAG}"
+          if [ "$BUILD_KSU" = "true" ]; then
+            KSU_LABEL="Yes"
+            MANAGERS="- [ReSukiSU Manager](${BASE_URL}/ReSukiSU_Manager.apk)
+          - [ReSukiSU Manager (Spoofed)](${BASE_URL}/ReSukiSU_Manager-Spoofed.apk)"
           else
-            {
-              echo "MANAGERS_MD<<MANAGERS_EOF"
-              echo "ReSukiSU was not built for this release."
-              echo "MANAGERS_EOF"
-            } >> "$GITHUB_ENV"
+            KSU_LABEL="No"
+            MANAGERS="ReSukiSU was not built for this release."
           fi
 
+          cat > release_notes.md <<EOF
+          ## Sashimi Kernel — \`bangkk\`
+
+          | | |
+          |---|---|
+          | **Device:** | \`bangkk\` |
+          | **Date:** | ${DATE_STR} |
+          | **Branch:** | \`${BRANCH}\` |
+          | **ReSukiSU:** | ${KSU_LABEL} |
+
+          ### Managers
+
+          ${MANAGERS}
+
+          ### Hash
+
+          SHA256: \`${SHA256}\`
+          EOF
+
       - name: Create GitHub Release
-        if: ${{ success() && inputs.create_release && env.ZIP_PATH != '' }}
+        if: ${{ success() && inputs.create_release }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: bangkk-${{ env.DATE_RELEASE }}-${{ env.BUILD_ID }}
+          tag_name: ${{ env.RELEASE_TAG }}
           name: Sashimi Kernel — ${{ env.DATE_STR }} (Bangkk)
-          body: |
-            ## Sashimi Kernel — `bangkk`
-
-            | | |
-            |---|---|
-            | **Device:** | `bangkk` |
-            | **Date:** | ${{ env.DATE_STR }} |
-            | **Branch:** | `${{ inputs.branch || 'resukisu' }}` |
-            | **ReSukiSU:** | ${{ inputs.build_ksu && 'Yes' || 'No' }} |
-
-            ### Managers
-
-            ${{ env.MANAGERS_MD }}
-
-            ### Hash
-
-            SHA256: ```${{ env.ZIP_SHA256 }}```
-
+          body_path: release_notes.md
           files: |
             ${{ env.ZIP_PATH }}
             release_out/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Upload Build Artifact
+        if: ${{ success() && !inputs.create_release }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sashimi-bangkk-${{ env.DATE_TAG }}-${{ github.run_number }}
+          path: release_out/
+          retention-days: 7
+
+      - name: Upload Build Log
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ github.run_number }}
+          path: android_kernel_motorola_sm6375/sashimi.log
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Report Build Failure
         if: ${{ failure() }}
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          MESSAGE_THREAD_ID: ${{ secrets.MESSAGE_THREAD_ID }}
+          UPLOAD_TELEGRAM: ${{ inputs.upload_telegram }}
+          BRANCH: ${{ inputs.branch }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          echo "::error::Sashimi CI Bangkk build failed on branch '${{ inputs.branch || 'resukisu' }}'. Check the 'Compile Kernel' step log above."
+          echo "::error::Sashimi CI Bangkk build failed on branch '${BRANCH}'. Check the failed step log above."
+          if [ "$UPLOAD_TELEGRAM" = "true" ] && [ -n "$BOT_TOKEN" ] && [ -n "$CHAT_ID" ]; then
+            args=(-d "chat_id=${CHAT_ID}" --data-urlencode "text=Sashimi CI Bangkk failed on ${BRANCH}: ${RUN_URL}")
+            if [ -n "$MESSAGE_THREAD_ID" ]; then
+              args+=(-d "message_thread_id=${MESSAGE_THREAD_ID}")
+            fi
+            curl -sS -o /dev/null -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" "${args[@]}" || true
+          fi
