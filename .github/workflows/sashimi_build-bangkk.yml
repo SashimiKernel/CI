@@ -78,7 +78,7 @@ jobs:
 
       - name: Restore ccache
         if: ${{ !inputs.clean_build }}
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: /home/runner/.ccache
           key: ${{ runner.os }}-ccache-${{ inputs.branch }}-${{ github.run_id }}
@@ -98,8 +98,9 @@ jobs:
           ccache --max-size="$CCACHE_MAXSIZE"
           ccache -z
 
-      - name: Cache Toolchain
-        uses: actions/cache@v4
+      - name: Restore Toolchain
+        id: toolchain
+        uses: actions/cache/restore@v4
         with:
           path: /home/runner/tc
           key: ${{ runner.os }}-clang-r596125
@@ -123,16 +124,6 @@ jobs:
           owner: 'SashimiKernel'
           repository: 'CI'
 
-      - name: Prepare Configuration
-        working-directory: ./CI
-        run: |
-          CONFIG_ENV=$(grep -w "CONFIG_ENV" config.env | head -n 1 | cut -d "=" -f 2)
-          if [ -z "$CONFIG_ENV" ] || [ ! -f "$CONFIG_ENV" ]; then
-            echo "::error::CONFIG_ENV not found or not set in config.env (got: '$CONFIG_ENV')"
-            exit 1
-          fi
-          echo "ENABLE_CCACHE=$(grep -w "ENABLE_CCACHE" "$CONFIG_ENV" | head -n 1 | cut -d "=" -f 2)" >> "$GITHUB_ENV"
-
       - name: Set SWAP to 10G
         uses: SushiKernel/swap@moe
         with:
@@ -151,22 +142,6 @@ jobs:
         run: |
           chmod +x *.sh
           cp sashimi.sh bot.sh ../android_kernel_motorola_sm6375
-
-      - name: Export Variables
-        if: ${{ inputs.upload_telegram }}
-        working-directory: ./android_kernel_motorola_sm6375
-        env:
-          CHAT_ID: ${{ secrets.CHAT_ID }}
-          MESSAGE_THREAD_ID: ${{ secrets.MESSAGE_THREAD_ID }}
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          BUILD_KSU: ${{ inputs.build_ksu }}
-        run: |
-          {
-            echo "CHAT_ID=${CHAT_ID}"
-            echo "MESSAGE_THREAD_ID=${MESSAGE_THREAD_ID}"
-            echo "BOT_TOKEN=${BOT_TOKEN}"
-            echo "BUILD_KSU=${BUILD_KSU}"
-          } >> .env
 
       - name: Configure Kernel Options
         working-directory: ./android_kernel_motorola_sm6375
@@ -208,6 +183,9 @@ jobs:
         working-directory: ./android_kernel_motorola_sm6375
         env:
           UPLOAD_TELEGRAM: ${{ inputs.upload_telegram }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          MESSAGE_THREAD_ID: ${{ secrets.MESSAGE_THREAD_ID }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         run: |
           if [ "$UPLOAD_TELEGRAM" = "true" ]; then
             ./bot.sh
@@ -219,6 +197,20 @@ jobs:
         if: ${{ always() }}
         run: |
           ccache -s
+
+      - name: Save ccache
+        if: ${{ always() }}
+        uses: actions/cache/save@v4
+        with:
+          path: /home/runner/.ccache
+          key: ${{ runner.os }}-ccache-${{ inputs.branch }}-${{ github.run_id }}
+
+      - name: Save Toolchain
+        if: ${{ always() && steps.toolchain.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: /home/runner/tc
+          key: ${{ runner.os }}-clang-r596125
 
       - name: Prepare Release Artifacts
         if: ${{ success() }}
@@ -237,28 +229,32 @@ jobs:
           cp "$ZIP_FILE" release_out/
           ZIP_NAME=$(basename "$ZIP_FILE")
           SHA256=$(sha256sum "release_out/$ZIP_NAME" | awk '{print $1}')
-          echo "ZIP_PATH=release_out/$ZIP_NAME" >> "$GITHUB_ENV"
 
           shopt -s nullglob
-          if [ -d "CI/Manager" ]; then
-            apks=(CI/Manager/*.apk)
-          elif [ -d "Manager" ]; then
-            apks=(Manager/*.apk)
-          else
-            apks=()
-          fi
-          if [ "${#apks[@]}" -gt 0 ]; then
-            cp "${apks[@]}" release_out/
-          else
-            echo "::warning::No Manager APK found, releasing zip only."
+          apks=()
+          if [ "$BUILD_KSU" = "true" ]; then
+            if [ -d "CI/Manager" ]; then
+              apks=(CI/Manager/*.apk)
+            elif [ -d "Manager" ]; then
+              apks=(Manager/*.apk)
+            fi
+            if [ "${#apks[@]}" -gt 0 ]; then
+              cp "${apks[@]}" release_out/
+            else
+              echo "::warning::No Manager APK found, releasing zip only."
+            fi
           fi
           shopt -u nullglob
 
           BASE_URL="https://github.com/${REPO}/releases/download/${RELEASE_TAG}"
           if [ "$BUILD_KSU" = "true" ]; then
             KSU_LABEL="Yes"
-            MANAGERS="- [ReSukiSU Manager](${BASE_URL}/ReSukiSU_Manager.apk)
-          - [ReSukiSU Manager (Spoofed)](${BASE_URL}/ReSukiSU_Manager-Spoofed.apk)"
+            MANAGERS=""
+            for apk in "${apks[@]}"; do
+              name=$(basename "$apk")
+              MANAGERS+="- [${name%.apk}](${BASE_URL}/${name})"$'\n'
+            done
+            [ -n "$MANAGERS" ] || MANAGERS="No Manager APK was bundled with this release."
           else
             KSU_LABEL="No"
             MANAGERS="ReSukiSU was not built for this release."
@@ -290,9 +286,7 @@ jobs:
           tag_name: ${{ env.RELEASE_TAG }}
           name: Sashimi Kernel — ${{ env.DATE_STR }} (Bangkk)
           body_path: release_notes.md
-          files: |
-            ${{ env.ZIP_PATH }}
-            release_out/*.apk
+          files: release_out/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -305,18 +299,10 @@ jobs:
           retention-days: 7
 
       - name: Upload Build Log
-        if: ${{ failure() }}
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: build-log-${{ github.run_number }}
           path: android_kernel_motorola_sm6375/sashimi.log
           if-no-files-found: ignore
           retention-days: 7
-
-      - name: Report Build Failure
-        if: ${{ failure() }}
-        env:
-          BRANCH: ${{ inputs.branch }}
-        run: |
-          echo "::error::Sashimi CI Bangkk build failed on branch '${BRANCH}'. Check the failed step log above."
-          
