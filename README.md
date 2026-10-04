@@ -1,6 +1,6 @@
 # Sashimi Kernel
 
-Custom Linux 5.4 kernel for the Motorola Moto G84 (`bangkk`), with ReSukiSU support.
+Custom Linux 5.4 kernel for the Motorola Moto G84 (`bangkk`), with ReSukiSU & SusFS support.
 
 ## Credits
 
