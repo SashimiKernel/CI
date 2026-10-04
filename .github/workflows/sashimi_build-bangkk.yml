@@ -351,3 +351,27 @@ jobs:
           path: android_kernel_motorola_sm6375/sashimi.log
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Notify Telegram on Cancel
+        if: ${{ cancelled() && inputs.upload_telegram }}
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          MESSAGE_THREAD_ID: ${{ secrets.MESSAGE_THREAD_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          API="https://api.telegram.org/bot${BOT_TOKEN}"
+          KEYBOARD="{\"inline_keyboard\":[[{\"text\":\"Compilation\",\"url\":\"${RUN_URL}\"}]]}"
+          if [ -f "$RUNNER_TEMP/tg_msg_id" ]; then
+            curl -s -m 15 -X POST "$API/editMessageText" \
+              -d chat_id="$CHAT_ID" \
+              -d message_id="$(cat "$RUNNER_TEMP/tg_msg_id")" \
+              --data-urlencode "text=Compilation Cancelled" \
+              --data-urlencode "reply_markup=$KEYBOARD" > /dev/null || true
+          else
+            curl -s -m 15 -X POST "$API/sendMessage" \
+              -d chat_id="$CHAT_ID" \
+              ${MESSAGE_THREAD_ID:+-d message_thread_id="$MESSAGE_THREAD_ID"} \
+              --data-urlencode "text=Compilation Cancelled" \
+              --data-urlencode "reply_markup=$KEYBOARD" > /dev/null || true
+          fi
