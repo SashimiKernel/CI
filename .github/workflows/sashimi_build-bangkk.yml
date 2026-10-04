@@ -60,7 +60,7 @@ jobs:
       run:
         shell: bash
     env:
-      TC_CACHE_NAME: clang-neutron-06092026
+      TC_CACHE_NAME: clang-22.0.2
       CCACHE_DIR: /home/runner/.ccache
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_MAXSIZE: "5G"
