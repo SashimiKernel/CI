@@ -28,6 +28,11 @@ on:
         required: true
         default: true
         type: boolean
+      build_susfs:
+        description: 'Build SusFS'
+        required: true
+        default: true
+        type: boolean
       upload_telegram:
         description: 'Upload build to Telegram'
         required: true
@@ -67,7 +72,6 @@ jobs:
     steps:
       - name: Free Disk Space
         run: |
-          # sashimi.sh aborts with less than 20G free
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
           df -h /
 
@@ -167,6 +171,7 @@ jobs:
           CUSTOMIZE_STRING: ${{ inputs.customize_kernel_string }}
           KERNEL_STRING: ${{ inputs.kernel_string }}
           BUILD_KSU: ${{ inputs.build_ksu }}
+          BUILD_SUSFS: ${{ inputs.build_susfs }}
         run: |
           if [ "$CUSTOMIZE_STRING" = "true" ]; then
             if [[ "$KERNEL_STRING" == *[\"\\]* ]] || [[ "$KERNEL_STRING" =~ [[:cntrl:]] ]]; then
@@ -197,6 +202,16 @@ jobs:
             fi
           fi
 
+          if [ "$BUILD_SUSFS" = "false" ]; then
+            MOTO_CONFIG="arch/arm64/configs/moto.config"
+            if [ -f "$MOTO_CONFIG" ]; then
+              sed -i -E 's/^CONFIG_KSU_SUSFS(_[A-Z0-9_]*)?=.*/# CONFIG_KSU_SUSFS\1 is not set/' "$MOTO_CONFIG"
+              echo "SusFS disabled in $MOTO_CONFIG"
+            else
+              echo "::warning::build_susfs was false but $MOTO_CONFIG was not found; SusFS config unchanged."
+            fi
+          fi
+
       - name: Compile Kernel
         working-directory: ./android_kernel_motorola_sm6375
         env:
@@ -204,7 +219,6 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
           MESSAGE_THREAD_ID: ${{ secrets.MESSAGE_THREAD_ID }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          # Disables the go-up upload inside sashimi.sh (CI uses Telegram/Release)
           SKIP_UPLOAD: "1"
         run: |
           if [ "$UPLOAD_TELEGRAM" = "true" ]; then
@@ -229,7 +243,6 @@ jobs:
         id: tccheck
         if: ${{ always() && steps.toolchain.outputs.cache-hit != 'true' }}
         run: |
-          # Only cache the toolchain if clang was really extracted (avoids caching an empty dir)
           if compgen -G "/home/runner/tc/*/bin/clang" > /dev/null; then
             echo "ok=true" >> "$GITHUB_OUTPUT"
           else
