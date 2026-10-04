@@ -212,6 +212,19 @@ jobs:
             fi
           fi
 
+          if [ "$BUILD_SUSFS" = "false" ] && [ "$BUILD_KSU" = "true" ]; then
+            MOTO_CONFIG="arch/arm64/configs/moto.config"
+            if [ -f "$MOTO_CONFIG" ]; then
+              for opt in KSU_MANUAL_HOOK KSU_MANUAL_HOOK_AUTO_SETUID_HOOK KSU_MANUAL_HOOK_AUTO_INITRC_HOOK; do
+                sed -i "/^CONFIG_${opt}=/d;/^# CONFIG_${opt} is not set/d" "$MOTO_CONFIG"
+                echo "CONFIG_${opt}=y" >> "$MOTO_CONFIG"
+              done
+              echo "ReSukiSU manual hooks enabled in $MOTO_CONFIG (SusFS is off)"
+            else
+              echo "::warning::build_ksu was true and build_susfs was false but $MOTO_CONFIG was not found; manual hooks not enabled."
+            fi
+          fi
+
       - name: Compile Kernel
         working-directory: ./android_kernel_motorola_sm6375
         env:
