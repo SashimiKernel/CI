@@ -413,30 +413,22 @@ jobs:
                   managers.append(f'- {apk.name}')
           manager_text = '\n'.join(managers) or ('No Manager APK was bundled.' if ksu else 'BakaSU was not built.')
           branch = os.environ['BRANCH'].replace('\\', '\\\\').replace('|', '\\|').replace('`', '\\`')
-          notes = (
+          summary_text = (
               '## Sashimi Kernel — `bangkk`\n\n'
               '| | |\n|---|---|\n'
               f"| **Device:** | `bangkk` |\n| **Date:** | {os.environ['DATE_STR']} |\n"
               f'| **Branch:** | {branch} |\n'
-              f"| **BakaSU:** | {'Yes' if ksu else 'No'} |\n| **SusFS:** | {'Yes' if susfs else 'No'} |\n\n"
+              f"| **BakaSU:** | {'Yes' if ksu else 'No'} |\n| **SusFS:** | {'Yes' if susfs else 'No'} |\n"
+          )
+          notes = (
+              summary_text + '\n'
               f'### Managers\n\n{manager_text}\n\n'
               f'### Hash\n\nSHA256: `{hashes[source.name]}`\n\nAll file hashes are included in `SHA256SUMS`.\n'
           )
           Path('release_notes.md').write_text(notes)
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
-              summary.write(notes)
+              summary.write(summary_text)
           PY
-
-      - name: Upload Build Artifact
-        id: build_artifact
-        if: ${{ !cancelled() && steps.artifacts.outcome == 'success' }}
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: sashimi-bangkk-${{ env.DATE_TAG }}-${{ github.run_number }}-${{ github.run_attempt }}
-          path: release_out/
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 7
 
       - name: Create GitHub Release
         if: ${{ !cancelled() && inputs.create_release && steps.artifacts.outcome == 'success' }}
