@@ -25,7 +25,7 @@ on:
         default: '-Sashimi'
         type: string
       build_ksu:
-        description: Build ReSukiSU
+        description: Build BakaSU
         required: true
         default: true
         type: boolean
@@ -411,14 +411,14 @@ jobs:
                   managers.append(f'- [{apk.name}]({base_url}/{quote(apk.name, safe="")})')
               else:
                   managers.append(f'- {apk.name}')
-          manager_text = '\n'.join(managers) or ('No Manager APK was bundled.' if ksu else 'ReSukiSU was not built.')
+          manager_text = '\n'.join(managers) or ('No Manager APK was bundled.' if ksu else 'BakaSU was not built.')
           branch = os.environ['BRANCH'].replace('\\', '\\\\').replace('|', '\\|').replace('`', '\\`')
           notes = (
               '## Sashimi Kernel — `bangkk`\n\n'
               '| | |\n|---|---|\n'
               f"| **Device:** | `bangkk` |\n| **Date:** | {os.environ['DATE_STR']} |\n"
               f'| **Branch:** | {branch} |\n'
-              f"| **ReSukiSU:** | {'Yes' if ksu else 'No'} |\n| **SusFS:** | {'Yes' if susfs else 'No'} |\n\n"
+              f"| **BakaSU:** | {'Yes' if ksu else 'No'} |\n| **SusFS:** | {'Yes' if susfs else 'No'} |\n\n"
               f'### Managers\n\n{manager_text}\n\n'
               f'### Hash\n\nSHA256: `{hashes[source.name]}`\n\nAll file hashes are included in `SHA256SUMS`.\n'
           )
