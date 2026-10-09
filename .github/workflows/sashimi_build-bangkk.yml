@@ -391,8 +391,18 @@ jobs:
           if not source.is_file() or not source.stat().st_size:
               raise SystemExit('::error::Build ZIP is missing or empty.')
           with zipfile.ZipFile(source) as archive:
-              if archive.read('config') != config or archive.getinfo('Image').file_size == 0:
-                  raise SystemExit('::error::ZIP contents do not match the generated build.')
+              if {'config', 'build-info.json'} & set(archive.namelist()):
+                  raise SystemExit('::error::Build metadata must not be included in the ZIP.')
+              boot = kernel / 'out/arch/arm64/boot'
+              for filename, member in (('Image', 'Image'), ('dtb.img', 'dtb'), ('dtbo.img', 'dtbo.img')):
+                  original = boot / filename
+                  if not original.is_file() or not original.stat().st_size:
+                      if filename == 'Image' or member in archive.namelist():
+                          raise SystemExit(f'::error::Missing build output: {filename}.')
+                      continue
+                  with original.open('rb') as built, archive.open(member) as packaged:
+                      if hashlib.file_digest(built, 'sha256').digest() != hashlib.file_digest(packaged, 'sha256').digest():
+                          raise SystemExit(f'::error::ZIP {member} does not match the generated build.')
           out = Path('release_out')
           out.mkdir(exist_ok=True)
           shutil.copy2(source, out / source.name)
