@@ -63,7 +63,7 @@ jobs:
       CLANG_REV: r596125
       CLANG_VERSION: clang-22.0.2
       TC_DIR: /home/runner/tc/clang-22.0.2
-      TC_CACHE_NAME: clang-r596125-v2
+      TC_CACHE_NAME: toolchain-v3
       CCACHE_DIR: /home/runner/.ccache
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_MAXSIZE: 5G
@@ -147,17 +147,6 @@ jobs:
           ccache -z
           echo "ready=true" >> "$GITHUB_OUTPUT"
 
-      - name: Restore Toolchain
-        id: toolchain
-        if: ${{ !inputs.clean_build }}
-        continue-on-error: true
-        uses: actions/cache/restore@v6.1.0
-        with:
-          path: ${{ env.TC_DIR }}
-          key: ${{ runner.os }}-${{ runner.arch }}-toolchain-${{ env.TC_CACHE_NAME }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-toolchain-${{ env.TC_CACHE_NAME }}-
-
       - name: Clone Kernel Repo
         uses: actions/checkout@v7.0.1
         with:
@@ -210,19 +199,32 @@ jobs:
           for SCRIPT in scripts/sashimi.sh scripts/bot.sh; do
             bash -n "$SCRIPT"
           done
-          install -m 755 scripts/sashimi.sh scripts/bot.sh android_kernel_motorola_sm6375/
+          python3 -m py_compile scripts/toolchain.py
+          install -m 755 scripts/sashimi.sh scripts/bot.sh scripts/toolchain.py android_kernel_motorola_sm6375/
+          {
+            echo "SASHIMI_SCRIPTS_SHA=$(git -C scripts rev-parse HEAD)"
+            echo "SASHIMI_CI_SHA=$(git -C CI rev-parse HEAD)"
+            echo "TC_CACHE_KEY=${RUNNER_OS}-${RUNNER_ARCH}-${TC_CACHE_NAME}-$(python3 scripts/toolchain.py key)"
+          } >> "$GITHUB_ENV"
 
-      - name: Check Restored Toolchain
-        id: restoredtc
-        run: |
-          READY=true
-          for TOOL in clang ld.lld llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-readelf llvm-size llvm-strip; do
-            if [[ ! -x "$TC_DIR/bin/$TOOL" ]]; then
-              READY=false
-              break
-            fi
-          done
-          echo "ok=$READY" >> "$GITHUB_OUTPUT"
+      - name: Restore Toolchain
+        id: toolchain
+        if: ${{ !inputs.clean_build }}
+        continue-on-error: true
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: ${{ env.TC_DIR }}
+          key: ${{ env.TC_CACHE_KEY }}
+
+      - name: Check Existing Toolchain Cache
+        id: tclookup
+        if: ${{ inputs.clean_build }}
+        continue-on-error: true
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: ${{ env.TC_DIR }}
+          key: ${{ env.TC_CACHE_KEY }}
+          lookup-only: true
 
       - name: Configure Kernel Options
         working-directory: android_kernel_motorola_sm6375
@@ -337,22 +339,19 @@ jobs:
         id: tccheck
         if: ${{ always() && !cancelled() && (steps.compile.outcome == 'success' || steps.compile.outcome == 'failure') }}
         run: |
-          READY=true
-          for TOOL in clang ld.lld llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-readelf llvm-size llvm-strip; do
-            if [[ ! -x "$TC_DIR/bin/$TOOL" ]]; then
-              READY=false
-              break
-            fi
-          done
-          echo "ok=$READY" >> "$GITHUB_OUTPUT"
+          if python3 scripts/toolchain.py check "$TC_DIR"; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Save Toolchain
-        if: ${{ always() && !cancelled() && steps.tccheck.outputs.ok == 'true' && (inputs.clean_build || steps.restoredtc.outputs.ok != 'true' || steps.toolchain.outputs.cache-matched-key == '' || steps.toolchain.outcome == 'failure') }}
+        if: ${{ always() && !cancelled() && steps.tccheck.outputs.ok == 'true' && steps.toolchain.outputs.cache-hit != 'true' && steps.tclookup.outputs.cache-hit != 'true' }}
         continue-on-error: true
         uses: actions/cache/save@v6.1.0
         with:
           path: ${{ env.TC_DIR }}
-          key: ${{ runner.os }}-${{ runner.arch }}-toolchain-${{ env.TC_CACHE_NAME }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ${{ env.TC_CACHE_KEY }}
 
       - name: Prepare Release Artifacts
         id: artifacts
@@ -364,6 +363,7 @@ jobs:
           BRANCH: ${{ inputs.branch }}
           REPO: ${{ github.repository }}
           SERVER_URL: ${{ github.server_url }}
+          ZIP_NAME: ${{ steps.compile.outputs.zip_file }}
         run: |
           python3 - <<'PY'
           import hashlib
@@ -384,17 +384,19 @@ jobs:
               raise SystemExit('::error::Final KernelSU/SusFS configuration does not match the selected inputs.')
           if ksu and not susfs and 'CONFIG_KSU_MANUAL_HOOK=y' not in settings:
               raise SystemExit('::error::KernelSU manual hooks are missing.')
-          zips = [p for p in kernel.glob('Sashimi-*.zip') if p.is_file() and p.stat().st_size]
-          if len(zips) != 1:
-              raise SystemExit(f'::error::Expected one Sashimi ZIP, found {len(zips)}.')
-          source = zips[0]
+          name = os.environ['ZIP_NAME']
+          if Path(name).name != name or not name.startswith('Sashimi-') or not name.endswith('-bangkk.zip'):
+              raise SystemExit('::error::Invalid build ZIP path.')
+          source = kernel / name
+          if not source.is_file() or not source.stat().st_size:
+              raise SystemExit('::error::Build ZIP is missing or empty.')
           with zipfile.ZipFile(source) as archive:
               if archive.read('config') != config or archive.getinfo('Image').file_size == 0:
                   raise SystemExit('::error::ZIP contents do not match the generated build.')
           out = Path('release_out')
           out.mkdir(exist_ok=True)
           shutil.copy2(source, out / source.name)
-          apks = sorted(Path('CI/Manager').glob('*.apk')) if ksu else []
+          apks = [Path('CI/Manager') / name for name in ('BakaSU_Manager.apk', 'BakaSU_Manager-Spoofed.apk')] if ksu else []
           apks = [p for p in apks if p.is_file() and p.stat().st_size]
           for apk in apks:
               shutil.copy2(apk, out / apk.name)
