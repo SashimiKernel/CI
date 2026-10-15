@@ -60,10 +60,11 @@ jobs:
       run:
         shell: bash
     env:
-      CLANG_REV: r596125
-      CLANG_VERSION: clang-22.0.2
-      TC_DIR: /home/runner/tc/clang-22.0.2
-      TC_CACHE_NAME: toolchain-v3
+      CLANG_REV: '06092026'
+      CLANG_VERSION: neutron-clang-24-06092026
+      CLANG_URL: https://github.com/Neutron-Toolchains/clang-build-catalogue/releases/download/06092026/neutron-clang-06092026.tar.zst
+      TC_DIR: /home/runner/tc/neutron-clang-24-06092026
+      TC_CACHE_NAME: toolchain-v4
       CCACHE_DIR: /home/runner/.ccache
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_MAXSIZE: 5G
