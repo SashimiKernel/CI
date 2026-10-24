@@ -60,11 +60,12 @@ jobs:
       run:
         shell: bash
     env:
-      CLANG_REV: '06092026'
-      CLANG_VERSION: neutron-clang-24-06092026
-      CLANG_URL: https://github.com/Neutron-Toolchains/clang-build-catalogue/releases/download/06092026/neutron-clang-06092026.tar.zst
-      TC_DIR: /home/runner/tc/neutron-clang-24-06092026
-      TC_CACHE_NAME: toolchain-v4
+      CLANG_REV: r596125
+      CLANG_VERSION: clang-22.0.2
+      CLANG_URL: https://github.com/samw662/aosp-clang-toolchains/releases/download/clang-22/clang-r596125.tar.gz
+      CLANG_SHA256: 454685862def8a53d05c4e0e55a0bbd93f2d3f55e51d0f58cc682bc4fbc51d0b
+      TC_DIR: /home/runner/tc/clang-22.0.2
+      TC_CACHE_NAME: toolchain-v5
       CCACHE_DIR: /home/runner/.ccache
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_MAXSIZE: 5G
