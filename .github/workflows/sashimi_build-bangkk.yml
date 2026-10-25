@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       branch:
-        description: Kernel Branch
+        description: Kernel branch to build (seventeen, eevdf, etc.)
         required: true
         default: seventeen
         type: string
@@ -202,6 +202,8 @@ jobs:
             bash -n "$SCRIPT"
           done
           python3 -m py_compile scripts/toolchain.py
+          python3 scripts/tests/test-package.py
+          bash AnyKernel3/tests/test-flash.sh
           install -m 755 scripts/sashimi.sh scripts/bot.sh scripts/toolchain.py android_kernel_motorola_sm6375/
           {
             echo "SASHIMI_SCRIPTS_SHA=$(git -C scripts rev-parse HEAD)"
@@ -357,7 +359,7 @@ jobs:
 
       - name: Prepare Release Artifacts
         id: artifacts
-        if: ${{ always() && !cancelled() && steps.compile.outputs.build_success == 'true' }}
+        if: ${{ always() && !cancelled() && inputs.create_release && steps.compile.outputs.build_success == 'true' }}
         env:
           BUILD_KSU: ${{ inputs.build_ksu }}
           BUILD_SUSFS: ${{ inputs.build_susfs }}
