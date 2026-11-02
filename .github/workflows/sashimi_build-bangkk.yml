@@ -410,7 +410,7 @@ jobs:
           out = Path('release_out')
           out.mkdir(exist_ok=True)
           shutil.copy2(source, out / source.name)
-          apks = [Path('CI/Manager') / name for name in ('BakaSU_Manager.apk', 'BakaSU_Manager-Spoofed.apk')] if ksu else []
+          apks = [Path('CI/Manager/BakaSU_Manager.apk')] if ksu else []
           apks = [p for p in apks if p.is_file() and p.stat().st_size]
           for apk in apks:
               shutil.copy2(apk, out / apk.name)
@@ -440,7 +440,7 @@ jobs:
           )
           notes = (
               summary_text + '\n'
-              f'### Managers\n\n{manager_text}\n\n'
+              f'### Manager\n\n{manager_text}\n\n'
               f'### Hash\n\nSHA256: `{hashes[source.name]}`\n\nAll file hashes are included in `SHA256SUMS`.\n'
           )
           Path('release_notes.md').write_text(notes)
