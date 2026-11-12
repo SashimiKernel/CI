@@ -203,6 +203,8 @@ jobs:
           done
           python3 -m py_compile scripts/toolchain.py
           python3 scripts/tests/test-package.py
+          python3 scripts/tests/test-build.py
+          python3 CI/tests/test-artifacts.py
           bash AnyKernel3/tests/test-flash.sh
           install -m 755 scripts/sashimi.sh scripts/bot.sh scripts/toolchain.py android_kernel_motorola_sm6375/
           {
@@ -280,6 +282,7 @@ jobs:
         id: compile
         working-directory: android_kernel_motorola_sm6375
         env:
+          KERNEL_BRANCH: ${{ inputs.branch }}
           BUILD_KSU: ${{ inputs.build_ksu }}
           BUILD_SUSFS: ${{ inputs.build_susfs }}
           UPLOAD_TELEGRAM: ${{ inputs.upload_telegram }}
@@ -357,6 +360,19 @@ jobs:
           path: ${{ env.TC_DIR }}
           key: ${{ env.TC_CACHE_KEY }}
 
+      - name: Upload Kernel Artifacts
+        if: ${{ always() && !cancelled() && (inputs.upload_telegram || inputs.create_release) && steps.compile.outputs.build_success == 'true' }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: kernel-build-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            android_kernel_motorola_sm6375/${{ steps.compile.outputs.zip_file }}
+            android_kernel_motorola_sm6375/out/.config
+            android_kernel_motorola_sm6375/out/build-info.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Prepare Release Artifacts
         id: artifacts
         if: ${{ always() && !cancelled() && inputs.create_release && steps.compile.outputs.build_success == 'true' }}
@@ -410,6 +426,8 @@ jobs:
           out = Path('release_out')
           out.mkdir(exist_ok=True)
           shutil.copy2(source, out / source.name)
+          (out / 'kernel.config').write_bytes(config)
+          shutil.copy2(kernel / 'out/build-info.json', out / 'build-info.json')
           apks = [Path('CI/Manager/BakaSU_Manager.apk')] if ksu else []
           apks = [p for p in apks if p.is_file() and p.stat().st_size]
           for apk in apks:
@@ -442,6 +460,7 @@ jobs:
               summary_text + '\n'
               f'### Manager\n\n{manager_text}\n\n'
               f'### Hash\n\nSHA256: `{hashes[source.name]}`\n\nAll file hashes are included in `SHA256SUMS`.\n'
+              '\nBuild configuration and provenance are attached separately as `kernel.config` and `build-info.json`.\n'
           )
           Path('release_notes.md').write_text(notes)
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
